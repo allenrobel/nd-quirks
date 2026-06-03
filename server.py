@@ -1,0 +1,244 @@
+"""
+nd_quirks_mcp.py — an MCP server exposing Obsidian notes about Nexus Dashboard
+API quirks, deviations, and unfixed bugs.
+
+Designed to run alongside an ND API schema MCP server: Claude Code can look up an
+endpoint in the schema, then ask this server for any known deviations on that path.
+
+The vault is read directly from disk (no Local REST API plugin needed). Obsidian's
+only job on the host is to run Obsidian Sync, which keeps the folder current. Files
+are cached by mtime, so edits synced from your other devices are picked up
+automatically without a restart.
+
+Frontmatter is optional. If you add it, this convention unlocks the best tooling:
+
+    ---
+    endpoints:
+      - /api/v1/infra/...
+      - /sedgeapi/v1/...
+    tags: [deviation, bug]
+    status: open          # open | workaround | fixed
+    severity: high
+    ---
+
+Run:
+    pip install fastmcp python-frontmatter
+    export OBSIDIAN_VAULT_PATH="/Users/allen/ObsidianVaults/ND-Quirks"
+    python nd_quirks_mcp.py
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import frontmatter
+from fastmcp import FastMCP
+
+# --- Configuration ----------------------------------------------------------
+
+VAULT_PATH = Path(
+    os.environ.get("OBSIDIAN_VAULT_PATH", "~/Obsidian/ND")
+).expanduser()
+
+# Directories and files we never want to surface in results.
+EXCLUDED_DIRS = {".obsidian", ".trash", ".git"}
+# Obsidian Sync creates "*.sync-conflict-*.md" files; keep them out of results.
+EXCLUDED_SUFFIXES = (".sync-conflict",)
+
+mcp = FastMCP("nd-quirks")
+
+
+# --- Note model + mtime cache ----------------------------------------------
+
+
+@dataclass
+class Note:
+    path: Path
+    name: str  # vault-relative path without extension, e.g. "infra/syslog-quirk"
+    meta: dict
+    body: str
+    mtime: float = field(repr=False, default=0.0)
+
+    @property
+    def endpoints(self) -> list[str]:
+        """Normalized endpoints declared in frontmatter (endpoint or endpoints)."""
+        raw = self.meta.get("endpoints") or self.meta.get("endpoint") or []
+        if isinstance(raw, str):
+            raw = [raw]
+        return [str(e).strip().lower() for e in raw if str(e).strip()]
+
+    @property
+    def tags(self) -> list[str]:
+        raw = self.meta.get("tags") or []
+        if isinstance(raw, str):
+            raw = [raw]
+        return [str(t).strip().lower() for t in raw]
+
+
+_cache: dict[Path, Note] = {}
+
+
+def _is_relevant(p: Path) -> bool:
+    if p.suffix != ".md":
+        return False
+    if any(part in EXCLUDED_DIRS for part in p.parts):
+        return False
+    if any(suf in p.stem for suf in EXCLUDED_SUFFIXES):
+        return False
+    return True
+
+
+def _load_note(p: Path) -> Note:
+    """Load a note, reusing the cache when the file is unchanged."""
+    mtime = p.stat().st_mtime
+    cached = _cache.get(p)
+    if cached and cached.mtime == mtime:
+        return cached
+
+    post = frontmatter.load(p)
+    note = Note(
+        path=p,
+        name=str(p.relative_to(VAULT_PATH).with_suffix("")),
+        meta=dict(post.metadata),
+        body=post.content,
+        mtime=mtime,
+    )
+    _cache[p] = note
+    return note
+
+
+def _all_notes() -> list[Note]:
+    if not VAULT_PATH.is_dir():
+        raise FileNotFoundError(
+            f"Vault not found at {VAULT_PATH!s}. "
+            "Set OBSIDIAN_VAULT_PATH to your vault's folder."
+        )
+    notes = [_load_note(p) for p in VAULT_PATH.rglob("*.md") if _is_relevant(p)]
+    # Drop cache entries for files that were deleted/renamed in a sync.
+    live = {n.path for n in notes}
+    for stale in set(_cache) - live:
+        del _cache[stale]
+    return notes
+
+
+def _snippet(body: str, needle: str, width: int = 200) -> str:
+    """Return a short context window around the first match of `needle`."""
+    idx = body.lower().find(needle.lower())
+    if idx == -1:
+        return body[:width].strip()
+    start = max(0, idx - width // 2)
+    end = min(len(body), idx + len(needle) + width // 2)
+    prefix = "…" if start > 0 else ""
+    suffix = "…" if end < len(body) else ""
+    return f"{prefix}{body[start:end].strip()}{suffix}"
+
+
+# --- Tools ------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_quirks() -> list[dict]:
+    """List every quirk note in the vault with its metadata.
+
+    Use this to see what ND API issues have been documented before diving in.
+    """
+    notes = sorted(_all_notes(), key=lambda n: n.name)
+    return [
+        {
+            "name": n.name,
+            "endpoints": n.endpoints,
+            "tags": n.tags,
+            "status": n.meta.get("status"),
+            "severity": n.meta.get("severity"),
+        }
+        for n in notes
+    ]
+
+
+@mcp.tool()
+def search_quirks(query: str, max_results: int = 10) -> list[dict]:
+    """Full-text search across quirk notes (title, tags, and body).
+
+    Returns matches ranked by relevance, each with a short snippet. Use this for
+    free-text questions like "syslog server validation" or "pagination off-by-one".
+    """
+    q = query.strip().lower()
+    if not q:
+        return []
+
+    scored: list[tuple[int, Note]] = []
+    for n in _all_notes():
+        score = 0
+        score += n.name.lower().count(q) * 5
+        score += sum(t.count(q) for t in n.tags) * 3
+        score += n.body.lower().count(q)
+        if score:
+            scored.append((score, n))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [
+        {
+            "name": n.name,
+            "score": score,
+            "status": n.meta.get("status"),
+            "endpoints": n.endpoints,
+            "snippet": _snippet(n.body, query),
+        }
+        for score, n in scored[:max_results]
+    ]
+
+
+@mcp.tool()
+def find_quirks_for_endpoint(endpoint: str) -> list[dict]:
+    """Find quirk notes relevant to a specific ND API endpoint or path.
+
+    Pair this with the ND schema server: after resolving an endpoint there, call
+    this to surface any documented deviations or bugs. Matches against the
+    `endpoints` frontmatter first, then falls back to a body search.
+    """
+    ep = endpoint.strip().lower()
+    if not ep:
+        return []
+
+    results = []
+    for n in _all_notes():
+        # Forgiving containment match in both directions for path fragments.
+        meta_hit = any(ep in e or e in ep for e in n.endpoints)
+        body_hit = ep in n.body.lower()
+        if meta_hit or body_hit:
+            results.append(
+                {
+                    "name": n.name,
+                    "matched_on": "frontmatter" if meta_hit else "body",
+                    "status": n.meta.get("status"),
+                    "severity": n.meta.get("severity"),
+                    "snippet": _snippet(n.body, endpoint),
+                }
+            )
+    # Frontmatter matches are more trustworthy than incidental body mentions.
+    results.sort(key=lambda r: r["matched_on"] != "frontmatter")
+    return results
+
+
+@mcp.tool()
+def get_quirk(name: str) -> dict:
+    """Return the full content and metadata of a single quirk note by name.
+
+    `name` is the vault-relative path without extension, e.g. "infra/syslog-quirk"
+    (as returned by list_quirks or search_quirks).
+    """
+    target = (VAULT_PATH / name).with_suffix(".md")
+    if not target.is_file() or not _is_relevant(target):
+        raise FileNotFoundError(f"No quirk note named {name!r}.")
+    n = _load_note(target)
+    return {"name": n.name, "meta": n.meta, "content": n.body}
+
+
+if __name__ == "__main__":
+    # Bind to all interfaces so Claude Code on other machines can reach it via
+    # the mm1e hostname, matching your context7 / nd-openapi servers. The /mcp
+    # path mirrors those entries' URLs.
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=8001, path="/mcp")
+
