@@ -18,6 +18,8 @@ Frontmatter is optional. If you add it, this convention unlocks the best tooling
       - /sedgeapi/v1/...
     tags: [deviation, bug]
     status: open          # open | workaround | fixed
+    found: 4.2.1
+    fixed: 4.3.0
     severity: high
     ---
 
