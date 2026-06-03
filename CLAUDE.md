@@ -53,16 +53,29 @@ model, and an mtime-based cache:
   quirk is present in a release: true when `found is None` (unknown origin) or
   `target >= found`, **and** `fixed is None`/empty (never fixed) or `target < fixed`.
 
-The five tools: `list_quirks` (inventory), `search_quirks` (per-word weighted
-full-text — name×5, tags×3, body×1, summed across whitespace-split terms, with a
-contiguous-phrase bonus so exact-phrase hits rank highest), `find_quirks_for_endpoint` (frontmatter `endpoints`
-match first, body fallback — note the *forgiving bidirectional containment*
-match `ep in e or e in ep` for path fragments — plus an optional `version` arg
-that filters to quirks present in that release), `find_quirks_for_version`
-(every quirk present in a given ND release), and `get_quirk` (full content by
-vault-relative name without extension, e.g. `infra/syslog-quirk`). The two
-version-aware paths raise `ValueError` on a malformed version and flag
-empty-`found` quirks with `origin: "unknown"`.
+The five tools: `list_quirks` (inventory), `search_quirks` (per-word ranked
+full-text — see *Search scoring* below), `find_quirks_for_endpoint` (frontmatter
+`endpoints` match first, body fallback — note the *forgiving bidirectional
+containment* match `ep in e or e in ep` for path fragments — plus an optional
+`version` arg that filters to quirks present in that release),
+`find_quirks_for_version` (every quirk present in a given ND release), and
+`get_quirk` (full content by vault-relative name without extension, e.g.
+`infra/syslog-quirk`). The two version-aware paths raise `ValueError` on a
+malformed version and flag empty-`found` quirks with `origin: "unknown"`.
+
+### Search scoring
+
+`search_quirks` lowercases the query and splits it on whitespace into terms.
+Each term is scored independently and the scores are **summed** (OR semantics —
+a note matches if *any* term hits), with per-field weights **name ×5, tags ×3,
+body ×1** counting every occurrence. So `"ghost groups"` matches a note
+mentioning either word, not only the contiguous phrase. For multi-word queries,
+a **contiguous-phrase bonus** re-applies those same weights to the full query
+string, so an exact-phrase hit outranks scattered single-word hits. A
+single-word query reduces to one term with no bonus — identical to the original
+behavior. Notes with a zero total score are dropped; results sort by score
+descending and truncate to `max_results`. Snippets anchor on the first term that
+actually appears in the body (`_first_term_in`), not the full phrase.
 
 ## Note frontmatter convention
 
