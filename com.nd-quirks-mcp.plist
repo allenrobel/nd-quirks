@@ -11,12 +11,12 @@
     <string>run</string>
     <string>/Users/arobel/repos/mcp/nd-quirks/server.py</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/arobel/repos/mcp/nd-quirks</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>OBSIDIAN_VAULT_PATH</key>
     <string>/Users/arobel/Obsidian/ND</string>
-    <key>PYTHONPATH</key>
-    <string>/Users/arobel/repos/mcp/nd-quirks/.venv/lib/python3.14/site-packages</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
