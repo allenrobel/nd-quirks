@@ -21,13 +21,13 @@ version (if any) fixes the behavior.  Notes might also contain workaround(s).
 
 ### 3. Edit `com.nd-quirks-mcp.plist` such that the paths match your environment
 
-- `OBSIDIAN_VAULT_PATH` should point to your ND value (e.g. `$HOME/Obsidian/ND`)
+- `OBSIDIAN_VAULT_PATH` should point to your ND vault (e.g. `$HOME/Obsidian/ND`)
 - `ProgramArguments` should call `uv server.py` via their full paths e.g.
   - `/Users/arobel/repos/mcp/nd-quirks/.venv/bin/uv`
   - run
   - `/Users/arobel/repos/mcp/nd-quirks/server.py`
-- `PYTHONPATH` should point to the .venv python e.g.
-  - `/Users/arobel/repos/nd-quirks/.venv/lib/python3.14/site-packages`
+- `WorkingDirectory` should point to this repository on your host
+  - `/Users/arobel/repos/mcp/nd-quirks`
 
 ```bash
 cd $HOME/repos/mcp/nd-quirks
@@ -36,7 +36,14 @@ cp com.nd-quirks-mcp.plist $HOME/Library/LaunchAgents
 chmod 644 $HOME/Library/LaunchAgents/com.nd-quirks-mcp.plist
 ```
 
-### 4. Edit Claude Code's config on the client Mac to point to this MCP server
+### 4. (Re)start the LaunchAgent
+
+```bash
+launchctl bootout gui/$(id -u)/com.nd-quirks
+launchctl bootstrap gui/$(id -u) $HOME/Library/LaunchAgents/com.nd-quirks-mcp.plist
+```
+
+### 5. Edit Claude Code's config on the client Mac to point to this MCP server
 
 - edit $HOME/.claude.json
 - Search for the `mcpServers` block
@@ -52,3 +59,46 @@ chmod 644 $HOME/Library/LaunchAgents/com.nd-quirks-mcp.plist
 ```
 
 ### 5. Restart Claude Code and check the MCP server status using the `/mcp` slash command
+
+## MCP Server Logic Diagram
+
+```mermaid
+flowchart TD
+    A("Module import and setup") --> B["Read environment, constants, and create FastMCP"]
+    B --> C{"Running as main script?"}
+    C -->|Yes| D["Start MCP HTTP server"]
+    D --> E["Await MCP tool calls"]
+    C -->|No| E
+
+    E --> F{"Which tool is called?"}
+    F -->|list_quirks or search_quirks| I[["_all_notes()"]]
+    F -->|find_quirks_for_endpoint or find_quirks_for_version| G{"Version parses?"}
+    F -->|get_quirk| J{"Target file exists and is relevant?"}
+
+    G -->|No| ERR["Raise ValueError or FileNotFoundError"]
+    G -->|Yes| I
+    J -->|No| ERR
+    J -->|Yes| L[["_load_note(path)"]]
+
+    I --> M{"Vault directory exists?"}
+    M -->|No| ERR
+    M -->|Yes| R[("Vault files and note cache")]
+    R --> N{"More markdown files?"}
+    N -->|Yes| O{"Relevant markdown file?"}
+    N -->|No| W["Drop stale cache entries and return note set"]
+
+    O -->|No| N
+    O -->|Yes| L
+
+    L --> P{"Cached note has same mtime?"}
+    P -->|Yes| Q["Reuse cached Note"]
+    P -->|No| S["Parse frontmatter and build Note"]
+
+    Q --> T{"Called from get_quirk?"}
+    S --> T
+    T -->|Yes| Z["Return full metadata and content"]
+    T -->|No| N
+
+    W --> X["Apply tool-specific sorting, scoring, snippets, and filters"]
+    X --> Z
+```
