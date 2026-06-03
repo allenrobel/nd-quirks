@@ -1,5 +1,18 @@
 # nd-quicks MCP Server
 
+## Summary
+
+An MCP Server that leverages notes written in Markdown.  The server is tailored for those
+developing Cisco Nexus Dashboard applications which use the REST API, but could easily be
+leveraged for other uses.
+
+My use case is providing Claude Code with a resource through which it can determine the
+suitability of Nexus Dashboard endpoints for a given task, and whether an endpoint exhibits
+any behavioral quirks and, if so, what version(s) exhibit the behavior and what
+version (if any) fixes the behavior.  Notes might also contain workaround(s).
+
+**The actual notes are not included in this repository.**
+
 ## Setup
 
 ### 1. Install Obsidian and login
