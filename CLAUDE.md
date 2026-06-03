@@ -53,8 +53,9 @@ model, and an mtime-based cache:
   quirk is present in a release: true when `found is None` (unknown origin) or
   `target >= found`, **and** `fixed is None`/empty (never fixed) or `target < fixed`.
 
-The five tools: `list_quirks` (inventory), `search_quirks` (weighted full-text:
-name×5, tags×3, body×1), `find_quirks_for_endpoint` (frontmatter `endpoints`
+The five tools: `list_quirks` (inventory), `search_quirks` (per-word weighted
+full-text — name×5, tags×3, body×1, summed across whitespace-split terms, with a
+contiguous-phrase bonus so exact-phrase hits rank highest), `find_quirks_for_endpoint` (frontmatter `endpoints`
 match first, body fallback — note the *forgiving bidirectional containment*
 match `ep in e or e in ep` for path fragments — plus an optional `version` arg
 that filters to quirks present in that release), `find_quirks_for_version`

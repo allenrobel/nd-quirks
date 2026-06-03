@@ -162,6 +162,18 @@ def _snippet(body: str, needle: str, width: int = 200) -> str:
     return f"{prefix}{body[start:end].strip()}{suffix}"
 
 
+def _first_term_in(body: str, terms: list[str]) -> str:
+    """The first query term that appears in `body`, for anchoring a snippet.
+
+    Falls back to the first term so a no-hit note still yields a leading excerpt.
+    """
+    low = body.lower()
+    for t in terms:
+        if t in low:
+            return t
+    return terms[0]
+
+
 # --- Version comparison -----------------------------------------------------
 
 
@@ -220,19 +232,33 @@ def list_quirks() -> list[dict]:
 def search_quirks(query: str, max_results: int = 10) -> list[dict]:
     """Full-text search across quirk notes (title, tags, and body).
 
-    Returns matches ranked by relevance, each with a short snippet. Use this for
-    free-text questions like "syslog server validation" or "pagination off-by-one".
+    The query is split into words and each is scored independently (name×5,
+    tags×3, body×1), so "ghost groups" matches a note mentioning either word. A
+    note containing the full phrase contiguously gets an extra boost, keeping
+    exact-phrase matches ranked highest. Returns matches ranked by relevance,
+    each with a short snippet. Use this for free-text questions like "syslog
+    server validation" or "pagination off-by-one".
     """
     q = query.strip().lower()
-    if not q:
+    terms = q.split()
+    if not terms:
         return []
 
     scored: list[tuple[int, Note]] = []
     for n in _all_notes():
+        name = n.name.lower()
+        body = n.body.lower()
         score = 0
-        score += n.name.lower().count(q) * 5
-        score += sum(t.count(q) for t in n.tags) * 3
-        score += n.body.lower().count(q)
+        for term in terms:
+            score += name.count(term) * 5
+            score += sum(t.count(term) for t in n.tags) * 3
+            score += body.count(term)
+        # Phrase bonus: reward a contiguous match of the full multi-word query
+        # so exact-phrase hits still outrank scattered single-word hits.
+        if len(terms) > 1:
+            score += name.count(q) * 5
+            score += sum(t.count(q) for t in n.tags) * 3
+            score += body.count(q)
         if score:
             scored.append((score, n))
 
@@ -245,7 +271,7 @@ def search_quirks(query: str, max_results: int = 10) -> list[dict]:
             "endpoints": n.endpoints,
             "found": n.meta.get("found"),
             "fixed": n.meta.get("fixed"),
-            "snippet": _snippet(n.body, query),
+            "snippet": _snippet(n.body, _first_term_in(n.body, terms)),
         }
         for score, n in scored[:max_results]
     ]
