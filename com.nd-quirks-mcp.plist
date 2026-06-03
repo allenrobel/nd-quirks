@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nd-quirks</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/arobel/repos/mcp/nd-quirks/.venv/bin/uv</string>
+    <string>run</string>
+    <string>/Users/arobel/repos/mcp/nd-quirks/server.py</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OBSIDIAN_VAULT_PATH</key>
+    <string>/Users/arobel/Obsidian/ND</string>
+    <key>PYTHONPATH</key>
+    <string>/Users/arobel/repos/nd-quirks/.venv/lib/python3.14/site-packages</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/nd-quirks.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/nd-quirks.err.log</string>
+</dict>
+</plist>
