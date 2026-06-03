@@ -44,20 +44,30 @@ model, and an mtime-based cache:
   `_all_notes()` call. This is the mechanism that makes synced edits appear
   without a restart.
 - **`_is_relevant`** — the single gatekeeper for which files surface: `.md` only,
-  excluding `.obsidian`/`.trash`/`.git` dirs and Obsidian Sync's
+  excluding `.obsidian`/`.trash`/`.git`/`Templates` dirs and Obsidian Sync's
   `*.sync-conflict-*.md` files. Any new tool must funnel file selection through
   this (or `_all_notes`), not raw `rglob`.
+- **Version logic** — `_parse_version` turns `major.minor.patch` strings into
+  comparable int tuples (`None` if empty/unparseable); `_vcmp` zero-pads before
+  comparing so `4.3` == `4.3.0`. `Note.affects_version(target)` decides whether a
+  quirk is present in a release: true when `found is None` (unknown origin) or
+  `target >= found`, **and** `fixed is None`/empty (never fixed) or `target < fixed`.
 
-The four tools: `list_quirks` (inventory), `search_quirks` (weighted full-text:
+The five tools: `list_quirks` (inventory), `search_quirks` (weighted full-text:
 name×5, tags×3, body×1), `find_quirks_for_endpoint` (frontmatter `endpoints`
 match first, body fallback — note the *forgiving bidirectional containment*
-match `ep in e or e in ep` for path fragments), and `get_quirk` (full content by
-vault-relative name without extension, e.g. `infra/syslog-quirk`).
+match `ep in e or e in ep` for path fragments — plus an optional `version` arg
+that filters to quirks present in that release), `find_quirks_for_version`
+(every quirk present in a given ND release), and `get_quirk` (full content by
+vault-relative name without extension, e.g. `infra/syslog-quirk`). The two
+version-aware paths raise `ValueError` on a malformed version and flag
+empty-`found` quirks with `origin: "unknown"`.
 
 ## Note frontmatter convention
 
 Frontmatter is optional, but this convention unlocks the tooling
-(`find_quirks_for_endpoint` ranking, status/severity in listings):
+(`find_quirks_for_endpoint` ranking, version filtering, status/severity in
+listings):
 
 ```yaml
 ---
@@ -65,11 +75,15 @@ endpoints:
   - /api/v1/infra/...
 tags: [deviation, bug]
 status: open          # open | workaround | fixed
-found: 4.2.1
-fixed: 4.3.0
+found: 4.2.1          # ND release the quirk was found in; always major.minor.patch
+fixed: 4.3.0          # release it was fixed in; leave empty if still present
 severity: high
 ---
 ```
+
+`found`/`fixed` drive the version-aware tools (see Architecture). `fixed` is
+commonly an **empty string** — that means "not yet fixed", not "unknown", and is
+distinct from an empty `found` (unknown origin).
 
 ## Deployment
 
