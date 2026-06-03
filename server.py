@@ -45,7 +45,8 @@ VAULT_PATH = Path(
 ).expanduser()
 
 # Directories and files we never want to surface in results.
-EXCLUDED_DIRS = {".obsidian", ".trash", ".git"}
+# "Templates" holds Obsidian note templates (e.g. FrontMatterTemplate), not quirks.
+EXCLUDED_DIRS = {".obsidian", ".trash", ".git", "Templates"}
 # Obsidian Sync creates "*.sync-conflict-*.md" files; keep them out of results.
 EXCLUDED_SUFFIXES = (".sync-conflict",)
 
@@ -77,6 +78,30 @@ class Note:
         if isinstance(raw, str):
             raw = [raw]
         return [str(t).strip().lower() for t in raw]
+
+    @property
+    def found_version(self) -> tuple[int, ...] | None:
+        """Parsed `found` version, or None if absent/unparseable (unknown origin)."""
+        return _parse_version(self.meta.get("found"))
+
+    @property
+    def fixed_version(self) -> tuple[int, ...] | None:
+        """Parsed `fixed` version, or None if absent/empty (never fixed)."""
+        return _parse_version(self.meta.get("fixed"))
+
+    def affects_version(self, target: tuple[int, ...]) -> bool:
+        """Whether this quirk is present in the given ND version.
+
+        Affects `target` when it was found at or before `target` (or its origin
+        is unknown) and has not yet been fixed as of `target`.
+        """
+        found = self.found_version
+        fixed = self.fixed_version
+        if found is not None and _vcmp(target, found) < 0:
+            return False  # quirk first appeared after the target version
+        if fixed is not None and _vcmp(target, fixed) >= 0:
+            return False  # already fixed by the target version
+        return True
 
 
 _cache: dict[Path, Note] = {}
@@ -137,6 +162,36 @@ def _snippet(body: str, needle: str, width: int = 200) -> str:
     return f"{prefix}{body[start:end].strip()}{suffix}"
 
 
+# --- Version comparison -----------------------------------------------------
+
+
+def _parse_version(value) -> tuple[int, ...] | None:
+    """Parse a 'major.minor.patch' string into a comparable tuple.
+
+    Returns None for empty/missing values (e.g. an unfixed quirk's `fixed:`) or
+    anything non-numeric. Tolerant of 2- or 4-part strings even though the
+    convention is 3-part.
+    """
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        return tuple(int(p) for p in s.split("."))
+    except ValueError:
+        return None
+
+
+def _vcmp(a: tuple[int, ...], b: tuple[int, ...]) -> int:
+    """Compare two parsed versions, returning -1, 0, or 1.
+
+    Pads the shorter tuple with zeros so 4.3 and 4.3.0 compare equal.
+    """
+    n = max(len(a), len(b))
+    a += (0,) * (n - len(a))
+    b += (0,) * (n - len(b))
+    return (a > b) - (a < b)
+
+
 # --- Tools ------------------------------------------------------------------
 
 
@@ -154,6 +209,8 @@ def list_quirks() -> list[dict]:
             "tags": n.tags,
             "status": n.meta.get("status"),
             "severity": n.meta.get("severity"),
+            "found": n.meta.get("found"),
+            "fixed": n.meta.get("fixed"),
         }
         for n in notes
     ]
@@ -186,6 +243,8 @@ def search_quirks(query: str, max_results: int = 10) -> list[dict]:
             "score": score,
             "status": n.meta.get("status"),
             "endpoints": n.endpoints,
+            "found": n.meta.get("found"),
+            "fixed": n.meta.get("fixed"),
             "snippet": _snippet(n.body, query),
         }
         for score, n in scored[:max_results]
@@ -193,19 +252,31 @@ def search_quirks(query: str, max_results: int = 10) -> list[dict]:
 
 
 @mcp.tool()
-def find_quirks_for_endpoint(endpoint: str) -> list[dict]:
+def find_quirks_for_endpoint(endpoint: str, version: str | None = None) -> list[dict]:
     """Find quirk notes relevant to a specific ND API endpoint or path.
 
     Pair this with the ND schema server: after resolving an endpoint there, call
     this to surface any documented deviations or bugs. Matches against the
     `endpoints` frontmatter first, then falls back to a body search.
+
+    Pass `version` (e.g. "4.2.1") to keep only quirks present in that ND release
+    — found at or before it and not yet fixed. Quirks with no recorded `found`
+    are kept and flagged `origin: "unknown"`.
     """
     ep = endpoint.strip().lower()
     if not ep:
         return []
 
+    target = _parse_version(version) if version else None
+    if version and target is None:
+        raise ValueError(
+            f"Could not parse version {version!r}; expected major.minor.patch, e.g. 4.2.1."
+        )
+
     results = []
     for n in _all_notes():
+        if target is not None and not n.affects_version(target):
+            continue
         # Forgiving containment match in both directions for path fragments.
         meta_hit = any(ep in e or e in ep for e in n.endpoints)
         body_hit = ep in n.body.lower()
@@ -216,12 +287,46 @@ def find_quirks_for_endpoint(endpoint: str) -> list[dict]:
                     "matched_on": "frontmatter" if meta_hit else "body",
                     "status": n.meta.get("status"),
                     "severity": n.meta.get("severity"),
+                    "found": n.meta.get("found"),
+                    "fixed": n.meta.get("fixed"),
+                    "origin": "unknown" if n.found_version is None else "known",
                     "snippet": _snippet(n.body, endpoint),
                 }
             )
     # Frontmatter matches are more trustworthy than incidental body mentions.
     results.sort(key=lambda r: r["matched_on"] != "frontmatter")
     return results
+
+
+@mcp.tool()
+def find_quirks_for_version(version: str) -> list[dict]:
+    """List every quirk present in a given ND version (e.g. "4.2.1").
+
+    Answers "what known issues apply to the release I'm running?" A quirk is
+    included when it was found at or before `version` and has not yet been fixed
+    as of `version`. Quirks with no recorded `found` are included and flagged
+    `origin: "unknown"`.
+    """
+    target = _parse_version(version)
+    if target is None:
+        raise ValueError(
+            f"Could not parse version {version!r}; expected major.minor.patch, e.g. 4.2.1."
+        )
+
+    notes = sorted(_all_notes(), key=lambda n: n.name)
+    return [
+        {
+            "name": n.name,
+            "endpoints": n.endpoints,
+            "status": n.meta.get("status"),
+            "severity": n.meta.get("severity"),
+            "found": n.meta.get("found"),
+            "fixed": n.meta.get("fixed"),
+            "origin": "unknown" if n.found_version is None else "known",
+        }
+        for n in notes
+        if n.affects_version(target)
+    ]
 
 
 @mcp.tool()
