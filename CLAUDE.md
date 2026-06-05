@@ -32,7 +32,7 @@ Requires Python >= 3.14. There is no test suite.
 
 ## Architecture
 
-Everything lives in `server.py` (~250 lines). Four FastMCP tools, one data
+Everything lives in `server.py` (~380 lines). Five FastMCP tools, one data
 model, and an mtime-based cache:
 
 - **`Note` dataclass** — wraps one `.md` file. Its `endpoints` and `tags`
