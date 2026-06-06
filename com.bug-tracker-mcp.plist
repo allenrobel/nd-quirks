@@ -4,15 +4,15 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.nd-quirks</string>
+  <string>com.bug-tracker-mcp</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/arobel/repos/mcp/nd-quirks/.venv/bin/uv</string>
+    <string>/Users/arobel/repos/mcp/bug-tracker-mcp/.venv/bin/uv</string>
     <string>run</string>
-    <string>/Users/arobel/repos/mcp/nd-quirks/server.py</string>
+    <string>/Users/arobel/repos/mcp/bug-tracker-mcp/server.py</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/arobel/repos/mcp/nd-quirks</string>
+  <string>/Users/arobel/repos/mcp/bug-tracker-mcp</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>OBSIDIAN_VAULT_PATH</key>
@@ -25,8 +25,8 @@
   <key>ThrottleInterval</key>
   <integer>30</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/nd-quirks.log</string>
+  <string>/tmp/bug-tracker-mcp.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/nd-quirks.err.log</string>
+  <string>/tmp/bug-tracker-mcp.err.log</string>
 </dict>
 </plist>

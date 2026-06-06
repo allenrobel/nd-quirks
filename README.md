@@ -1,14 +1,14 @@
-# nd-quicks MCP Server
+# Bug Tracker MCP Server
 
 ## Summary
 
-An MCP Server that leverages notes written in Markdown.  The server is tailored for those
+An MCP Server that leverages notes written in Markdown to track bugs.  The server was written for those
 developing Cisco Nexus Dashboard applications which use the REST API, but could easily be
 leveraged for other uses.
 
 My use case is providing Claude Code with a resource through which it can determine the
-suitability of Nexus Dashboard endpoints for a given task, and whether an endpoint exhibits
-any behavioral quirks and, if so, what version(s) exhibit the behavior and what
+suitability of various Nexus Dashboard endpoints for a given task, and whether an endpoint exhibits
+any behavioral bugs and, if so, what version(s) exhibit the behavior and what
 version (if any) fixes the behavior.  Notes might also contain workaround(s).
 
 **The actual notes are not included in this repository.**
@@ -19,28 +19,28 @@ version (if any) fixes the behavior.  Notes might also contain workaround(s).
 
 ### 2. Setup sync with the ND Vault (vault should be in `$HOME/Obsidian/ND`)
 
-### 3. Edit `com.nd-quirks-mcp.plist` such that the paths match your environment
+### 3. Edit `com.bug-tracker-mcp.plist` such that the paths match your environment
 
 - `OBSIDIAN_VAULT_PATH` should point to your ND vault (e.g. `$HOME/Obsidian/ND`)
 - `ProgramArguments` should call `uv server.py` via their full paths e.g.
-  - `/Users/arobel/repos/mcp/nd-quirks/.venv/bin/uv`
+  - `/Users/arobel/repos/mcp/bug-tracker-mcp/.venv/bin/uv`
   - run
-  - `/Users/arobel/repos/mcp/nd-quirks/server.py`
+  - `/Users/arobel/repos/mcp/bug-tracker-mcp/server.py`
 - `WorkingDirectory` should point to this repository on your host
-  - `/Users/arobel/repos/mcp/nd-quirks`
+  - `/Users/arobel/repos/mcp/bug-tracker-mcp`
 
 ```bash
-cd $HOME/repos/mcp/nd-quirks
-vi com.nd-quirks-mcp.plist
-cp com.nd-quirks-mcp.plist $HOME/Library/LaunchAgents
-chmod 644 $HOME/Library/LaunchAgents/com.nd-quirks-mcp.plist
+cd $HOME/repos/mcp/bug-tracker-mcp
+vi com.bug-tracker-mcp.plist
+cp com.bug-tracker-mcp.plist $HOME/Library/LaunchAgents
+chmod 644 $HOME/Library/LaunchAgents/com.bug-tracker-mcp.plist
 ```
 
 ### 4. (Re)start the LaunchAgent
 
 ```bash
-launchctl bootout gui/$(id -u)/com.nd-quirks
-launchctl bootstrap gui/$(id -u) $HOME/Library/LaunchAgents/com.nd-quirks-mcp.plist
+launchctl bootout gui/$(id -u)/com.bug-tracker-mcp
+launchctl bootstrap gui/$(id -u) $HOME/Library/LaunchAgents/com.bug-tracker-mcp.plist
 ```
 
 ### 5. Edit Claude Code's config on the client Mac to point to this MCP server
@@ -51,7 +51,7 @@ launchctl bootstrap gui/$(id -u) $HOME/Library/LaunchAgents/com.nd-quirks-mcp.pl
 
 ```json
   "mcpServers": {
-    "nd-quirks": {
+    "bug-tracker-mcp": {
       "type": "http",
       "url": "http://mm1e:8001/mcp"
     }
@@ -71,9 +71,9 @@ flowchart TD
     C -->|No| E
 
     E --> F{"Which tool is called?"}
-    F -->|list_quirks or search_quirks| I[["_all_notes()"]]
-    F -->|find_quirks_for_endpoint or find_quirks_for_version| G{"Version parses?"}
-    F -->|get_quirk| J{"Target file exists and is relevant?"}
+    F -->|list_bugs or search_bugs| I[["_all_notes()"]]
+    F -->|find_bugs_for_endpoint or find_bugs_for_version| G{"Version parses?"}
+    F -->|get_bug| J{"Target file exists and is relevant?"}
 
     G -->|No| ERR["Raise ValueError or FileNotFoundError"]
     G -->|Yes| I
@@ -94,7 +94,7 @@ flowchart TD
     P -->|Yes| Q["Reuse cached Note"]
     P -->|No| S["Parse frontmatter and build Note"]
 
-    Q --> T{"Called from get_quirk?"}
+    Q --> T{"Called from get_bug?"}
     S --> T
     T -->|Yes| Z["Return full metadata and content"]
     T -->|No| N

@@ -1,9 +1,10 @@
 """
-nd_quirks_mcp.py — an MCP server exposing Obsidian notes about Nexus Dashboard
-API quirks, deviations, and unfixed bugs.
+server.py — an MCP server exposing Obsidian notes about bugs and deviations.
 
-Designed to run alongside an ND API schema MCP server: Claude Code can look up an
-endpoint in the schema, then ask this server for any known deviations on that path.
+Original use case: track ND API bugs and workarounds in an Obsidian vault, then query them from
+Claude Code when writing prompts or debugging issues. But the pattern is general: if
+you have a collection of markdown notes with structured frontmatter, this server can expose
+them as an MCP tool for querying and retrieval.
 
 The vault is read directly from disk (no Local REST API plugin needed). Obsidian's
 only job on the host is to run Obsidian Sync, which keeps the folder current. Files
@@ -25,8 +26,8 @@ Frontmatter is optional. If you add it, this convention unlocks the best tooling
 
 Run:
     pip install fastmcp python-frontmatter
-    export OBSIDIAN_VAULT_PATH="/Users/allen/ObsidianVaults/ND-Quirks"
-    python nd_quirks_mcp.py
+    export OBSIDIAN_VAULT_PATH="/Users/allen/ObsidianVaults/Bugs"
+    python server.py
 """
 
 from __future__ import annotations
@@ -45,12 +46,13 @@ VAULT_PATH = Path(
 ).expanduser()
 
 # Directories and files we never want to surface in results.
-# "Templates" holds Obsidian note templates (e.g. FrontMatterTemplate), not quirks.
+# "Templates" holds Obsidian note templates (e.g. FrontMatterTemplate),
+# not actual bug notes.
 EXCLUDED_DIRS = {".obsidian", ".trash", ".git", "Templates"}
 # Obsidian Sync creates "*.sync-conflict-*.md" files; keep them out of results.
 EXCLUDED_SUFFIXES = (".sync-conflict",)
 
-mcp = FastMCP("nd-quirks")
+mcp = FastMCP("bug-tracker-mcp")
 
 
 # --- Note model + mtime cache ----------------------------------------------
@@ -59,7 +61,7 @@ mcp = FastMCP("nd-quirks")
 @dataclass
 class Note:
     path: Path
-    name: str  # vault-relative path without extension, e.g. "infra/syslog-quirk"
+    name: str  # vault-relative path without extension, e.g. "infra/syslog-bug"
     meta: dict
     body: str
     mtime: float = field(repr=False, default=0.0)
@@ -90,7 +92,7 @@ class Note:
         return _parse_version(self.meta.get("fixed"))
 
     def affects_version(self, target: tuple[int, ...]) -> bool:
-        """Whether this quirk is present in the given ND version.
+        """Whether this bug is present in the given ND version.
 
         Affects `target` when it was found at or before `target` (or its origin
         is unknown) and has not yet been fixed as of `target`.
@@ -98,7 +100,7 @@ class Note:
         found = self.found_version
         fixed = self.fixed_version
         if found is not None and _vcmp(target, found) < 0:
-            return False  # quirk first appeared after the target version
+            return False  # bug first appeared after the target version
         if fixed is not None and _vcmp(target, fixed) >= 0:
             return False  # already fixed by the target version
         return True
@@ -180,7 +182,7 @@ def _first_term_in(body: str, terms: list[str]) -> str:
 def _parse_version(value) -> tuple[int, ...] | None:
     """Parse a 'major.minor.patch' string into a comparable tuple.
 
-    Returns None for empty/missing values (e.g. an unfixed quirk's `fixed:`) or
+    Returns None for empty/missing values (e.g. an unfixed bug's `fixed:`) or
     anything non-numeric. Tolerant of 2- or 4-part strings even though the
     convention is 3-part.
     """
@@ -208,8 +210,8 @@ def _vcmp(a: tuple[int, ...], b: tuple[int, ...]) -> int:
 
 
 @mcp.tool()
-def list_quirks() -> list[dict]:
-    """List every quirk note in the vault with its metadata.
+def list_bugs() -> list[dict]:
+    """List every bug note in the vault with its metadata.
 
     Use this to see what ND API issues have been documented before diving in.
     """
@@ -229,8 +231,8 @@ def list_quirks() -> list[dict]:
 
 
 @mcp.tool()
-def search_quirks(query: str, max_results: int = 10) -> list[dict]:
-    """Full-text search across quirk notes (title, tags, and body).
+def search_bugs(query: str, max_results: int = 10) -> list[dict]:
+    """Full-text search across bug notes (title, tags, and body).
 
     The query is split into words and each is scored independently (name×5,
     tags×3, body×1), so "ghost groups" matches a note mentioning either word. A
@@ -278,15 +280,15 @@ def search_quirks(query: str, max_results: int = 10) -> list[dict]:
 
 
 @mcp.tool()
-def find_quirks_for_endpoint(endpoint: str, version: str | None = None) -> list[dict]:
-    """Find quirk notes relevant to a specific ND API endpoint or path.
+def find_bugs_for_endpoint(endpoint: str, version: str | None = None) -> list[dict]:
+    """Find bug notes relevant to a specific ND API endpoint or path.
 
     Pair this with the ND schema server: after resolving an endpoint there, call
     this to surface any documented deviations or bugs. Matches against the
     `endpoints` frontmatter first, then falls back to a body search.
 
-    Pass `version` (e.g. "4.2.1") to keep only quirks present in that ND release
-    — found at or before it and not yet fixed. Quirks with no recorded `found`
+    Pass `version` (e.g. "4.2.1") to keep only bugs present in that ND release
+    — found at or before it and not yet fixed. Bugs with no recorded `found`
     are kept and flagged `origin: "unknown"`.
     """
     ep = endpoint.strip().lower()
@@ -325,12 +327,12 @@ def find_quirks_for_endpoint(endpoint: str, version: str | None = None) -> list[
 
 
 @mcp.tool()
-def find_quirks_for_version(version: str) -> list[dict]:
-    """List every quirk present in a given ND version (e.g. "4.2.1").
+def find_bugs_for_version(version: str) -> list[dict]:
+    """List every bug present in a given ND version (e.g. "4.2.1").
 
-    Answers "what known issues apply to the release I'm running?" A quirk is
+    Answers "what known issues apply to the release I'm running?" A bug is
     included when it was found at or before `version` and has not yet been fixed
-    as of `version`. Quirks with no recorded `found` are included and flagged
+    as of `version`. Bugs with no recorded `found` are included and flagged
     `origin: "unknown"`.
     """
     target = _parse_version(version)
@@ -356,15 +358,15 @@ def find_quirks_for_version(version: str) -> list[dict]:
 
 
 @mcp.tool()
-def get_quirk(name: str) -> dict:
-    """Return the full content and metadata of a single quirk note by name.
+def get_bug(name: str) -> dict:
+    """Return the full content and metadata of a single bug note by name.
 
-    `name` is the vault-relative path without extension, e.g. "infra/syslog-quirk"
-    (as returned by list_quirks or search_quirks).
+    `name` is the vault-relative path without extension, e.g. "infra/syslog-bug"
+    (as returned by list_bugs or search_bugs).
     """
     target = (VAULT_PATH / name).with_suffix(".md")
     if not target.is_file() or not _is_relevant(target):
-        raise FileNotFoundError(f"No quirk note named {name!r}.")
+        raise FileNotFoundError(f"No bug note named {name!r}.")
     n = _load_note(target)
     return {"name": n.name, "meta": n.meta, "content": n.body}
 

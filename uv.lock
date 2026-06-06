@@ -562,7 +562,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nd-quirks"
+name = "bug-tracker-mcp"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
