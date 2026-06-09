@@ -14,6 +14,7 @@ automatically without a restart.
 Frontmatter is optional. If you add it, this convention unlocks the best tooling:
 
     ---
+    id: svi-routingtag-type-mismatch   # stable slug for code back-links / cross-note links
     endpoints:
       - /api/v1/infra/...
       - /sedgeapi/v1/...
@@ -22,6 +23,7 @@ Frontmatter is optional. If you add it, this convention unlocks the best tooling
     found: 4.2.1
     fixed: 4.3.0
     severity: high
+    guidance: "..."       # one-line actionable takeaway, surfaced in every listing
     ---
 
 Run:
@@ -51,6 +53,10 @@ VAULT_PATH = Path(
 EXCLUDED_DIRS = {".obsidian", ".trash", ".git", "Templates"}
 # Obsidian Sync creates "*.sync-conflict-*.md" files; keep them out of results.
 EXCLUDED_SUFFIXES = (".sync-conflict",)
+# Project-tooling markdown that lives at the vault root but is never a bug note —
+# e.g. the CLAUDE.md / README that guides agents working in the vault. Matched by
+# filename (case-insensitive) anywhere in the tree.
+EXCLUDED_FILENAMES = {"claude.md", "readme.md", "memory.md", "agents.md"}
 
 mcp = FastMCP("bug-tracker-mcp")
 
@@ -82,6 +88,18 @@ class Note:
         return [str(t).strip().lower() for t in raw]
 
     @property
+    def bug_id(self) -> str | None:
+        """Stable `id` slug, the anchor for code back-links and cross-note links."""
+        raw = str(self.meta.get("id") or "").strip()
+        return raw or None
+
+    @property
+    def guidance(self) -> str | None:
+        """One-line actionable takeaway from frontmatter `guidance`, if present."""
+        raw = str(self.meta.get("guidance") or "").strip()
+        return raw or None
+
+    @property
     def found_version(self) -> tuple[int, ...] | None:
         """Parsed `found` version, or None if absent/unparseable (unknown origin)."""
         return _parse_version(self.meta.get("found"))
@@ -111,6 +129,8 @@ _cache: dict[Path, Note] = {}
 
 def _is_relevant(p: Path) -> bool:
     if p.suffix != ".md":
+        return False
+    if p.name.lower() in EXCLUDED_FILENAMES:
         return False
     if any(part in EXCLUDED_DIRS for part in p.parts):
         return False
@@ -219,12 +239,14 @@ def list_bugs() -> list[dict]:
     return [
         {
             "name": n.name,
+            "id": n.bug_id,
             "endpoints": n.endpoints,
             "tags": n.tags,
             "status": n.meta.get("status"),
             "severity": n.meta.get("severity"),
             "found": n.meta.get("found"),
             "fixed": n.meta.get("fixed"),
+            "guidance": n.guidance,
         }
         for n in notes
     ]
@@ -268,11 +290,13 @@ def search_bugs(query: str, max_results: int = 10) -> list[dict]:
     return [
         {
             "name": n.name,
+            "id": n.bug_id,
             "score": score,
             "status": n.meta.get("status"),
             "endpoints": n.endpoints,
             "found": n.meta.get("found"),
             "fixed": n.meta.get("fixed"),
+            "guidance": n.guidance,
             "snippet": _snippet(n.body, _first_term_in(n.body, terms)),
         }
         for score, n in scored[:max_results]
@@ -312,12 +336,14 @@ def find_bugs_for_endpoint(endpoint: str, version: str | None = None) -> list[di
             results.append(
                 {
                     "name": n.name,
+                    "id": n.bug_id,
                     "matched_on": "frontmatter" if meta_hit else "body",
                     "status": n.meta.get("status"),
                     "severity": n.meta.get("severity"),
                     "found": n.meta.get("found"),
                     "fixed": n.meta.get("fixed"),
                     "origin": "unknown" if n.found_version is None else "known",
+                    "guidance": n.guidance,
                     "snippet": _snippet(n.body, endpoint),
                 }
             )
@@ -345,12 +371,14 @@ def find_bugs_for_version(version: str) -> list[dict]:
     return [
         {
             "name": n.name,
+            "id": n.bug_id,
             "endpoints": n.endpoints,
             "status": n.meta.get("status"),
             "severity": n.meta.get("severity"),
             "found": n.meta.get("found"),
             "fixed": n.meta.get("fixed"),
             "origin": "unknown" if n.found_version is None else "known",
+            "guidance": n.guidance,
         }
         for n in notes
         if n.affects_version(target)
@@ -369,6 +397,26 @@ def get_bug(name: str) -> dict:
         raise FileNotFoundError(f"No bug note named {name!r}.")
     n = _load_note(target)
     return {"name": n.name, "meta": n.meta, "content": n.body}
+
+
+@mcp.tool()
+def get_bug_by_id(bug_id: str) -> dict:
+    """Return the full content and metadata of a single bug note by its `id`.
+
+    `id` is the stable kebab-case slug in a note's frontmatter (e.g.
+    "svi-routingtag-type-mismatch"). Use this to resolve a back-link left
+    elsewhere — a `# workaround: <id>` comment in code, or a cross-note link — to
+    the documented bug. Unlike `get_bug`, which takes the vault-relative path
+    (and therefore breaks if the note is renamed), the `id` is meant to be stable
+    for the life of the bug.
+    """
+    wanted = bug_id.strip().lower()
+    if not wanted:
+        raise ValueError("bug_id must be non-empty.")
+    for n in _all_notes():
+        if n.bug_id and n.bug_id.lower() == wanted:
+            return {"name": n.name, "meta": n.meta, "content": n.body}
+    raise FileNotFoundError(f"No bug note with id {bug_id!r}.")
 
 
 if __name__ == "__main__":

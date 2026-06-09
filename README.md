@@ -71,7 +71,7 @@ flowchart TD
     C -->|No| E
 
     E --> F{"Which tool is called?"}
-    F -->|list_bugs or search_bugs| I[["_all_notes()"]]
+    F -->|list_bugs, search_bugs, or get_bug_by_id| I[["_all_notes()"]]
     F -->|find_bugs_for_endpoint or find_bugs_for_version| G{"Version parses?"}
     F -->|get_bug| J{"Target file exists and is relevant?"}
 
