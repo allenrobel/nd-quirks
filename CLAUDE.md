@@ -15,6 +15,18 @@ plugin involved. Obsidian's only role on the host is to run Obsidian Sync, which
 keeps the vault folder current. Edits synced from other devices are picked up
 automatically (see caching below); no server restart needed.
 
+## Related projects (the ND tooling ecosystem)
+
+This server is one of three linked projects:
+
+1. **ansible-nd** — `/Users/arobel/repos/ansible/collections/ansible_collections/cisco/nd`
+   — the `cisco.nd` Ansible collection; where the documented deviations are discovered.
+2. **The vault** — `OBSIDIAN_VAULT_PATH` (typically `~/Obsidian/ND`) — the notes this
+   server serves. Its own `CLAUDE.md` defines the note frontmatter schema this server
+   parses (`id`, `endpoints`, `tags`, `found`/`fixed`, `status`, `severity`, `guidance`);
+   keep `Note`/the tools in sync with that schema.
+3. **This repo** — the MCP server.
+
 ## Commands
 
 ```bash
